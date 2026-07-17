@@ -1,0 +1,6 @@
+resources.env
+.env
+.env.*
+.aws/
+keys/
+*.pem

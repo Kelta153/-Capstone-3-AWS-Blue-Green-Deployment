@@ -1,0 +1,17 @@
+[
+  {
+    "Type": "forward",
+    "ForwardConfig": {
+      "TargetGroups": [
+        {
+          "TargetGroupArn": "YOUR_BLUE_TARGET_GROUP_ARN",
+          "Weight": 90
+        },
+        {
+          "TargetGroupArn": "YOUR_GREEN_TARGET_GROUP_ARN",
+          "Weight": 10
+        }
+      ]
+    }
+  }
+]

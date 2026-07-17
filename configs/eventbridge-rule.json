@@ -1,0 +1,10 @@
+{
+  "source": ["aws.cloudwatch"],
+  "detail-type": ["CloudWatch Alarm State Change"],
+  "detail": {
+    "alarmName": ["GreenTarget-UnHealthyHostCount"],
+    "state": {
+      "value": ["ALARM"]
+    }
+  }
+}
