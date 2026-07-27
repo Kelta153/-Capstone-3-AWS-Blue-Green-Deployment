@@ -26,6 +26,10 @@ delete_if_exists () {
 
 ############################################
 
+AWS_ACCOUNT_ID=${AWS_ACCOUNT_ID:-$(aws sts get-caller-identity --query Account --output text)}
+
+############################################
+
 echo
 echo "======================================="
 echo "Blue-Green Cleanup"
@@ -38,9 +42,16 @@ echo
 
 echo "Removing EventBridge..."
 
-delete_if_exists aws events remove-targets \
+TARGET_IDS=$(aws events list-targets-by-rule \
 --rule "$EVENTBRIDGE_RULE" \
---ids 1
+--query "Targets[].Id" \
+--output text 2>/dev/null || true)
+
+if [ -n "$TARGET_IDS" ]; then
+    delete_if_exists aws events remove-targets \
+    --rule "$EVENTBRIDGE_RULE" \
+    --ids $TARGET_IDS
+fi
 
 delete_if_exists aws events delete-rule \
 --name "$EVENTBRIDGE_RULE"
@@ -95,7 +106,10 @@ delete_if_exists aws iam detach-role-policy \
 
 delete_if_exists aws iam detach-role-policy \
 --role-name "$LAMBDA_ROLE_NAME" \
---policy-arn arn:aws:iam::$AWS_ACCOUNT_ID:policy/BlueGreenRollbackPolicy
+--policy-arn "arn:aws:iam::${AWS_ACCOUNT_ID}:policy/BlueGreenRollbackPolicy"
+
+delete_if_exists aws iam delete-policy \
+--policy-arn "arn:aws:iam::${AWS_ACCOUNT_ID}:policy/BlueGreenRollbackPolicy"
 
 delete_if_exists aws iam delete-role \
 --role-name "$LAMBDA_ROLE_NAME"
@@ -114,9 +128,10 @@ echo "Deleting Load Balancer..."
 delete_if_exists aws elbv2 delete-load-balancer \
 --load-balancer-arn "$ALB_ARN"
 
-echo "Waiting..."
+echo "Waiting for Load Balancer deletion..."
 
-sleep 30
+aws elbv2 wait load-balancers-deleted \
+--load-balancer-arns "$ALB_ARN" 2>/dev/null || true
 
 ############################################
 # Target Groups
@@ -149,9 +164,9 @@ aws ec2 wait instance-terminated \
 ############################################
 
 delete_if_exists aws ec2 delete-key-pair \
---key-name "$KEY_NAME"
+--key-name "${KEY_NAME:-}"
 
-rm -f "${KEY_NAME}.pem"
+rm -f "${KEY_NAME:-}.pem"
 
 ############################################
 # Instance Profile
@@ -192,35 +207,33 @@ delete_if_exists aws rds delete-db-subnet-group \
 ############################################
 
 delete_if_exists aws ec2 delete-security-group \
---group-id "$RDS_SG"
+--group-id "${RDS_SG:-}"
 
 delete_if_exists aws ec2 delete-security-group \
---group-id "$WEB_SG"
+--group-id "${WEB_SG:-}"
 
 delete_if_exists aws ec2 delete-security-group \
---group-id "$ALB_SG"
+--group-id "${ALB_SG:-}"
 
 ############################################
 # Route Tables
 ############################################
 
-delete_if_exists aws ec2 disassociate-route-table \
---association-id "$PUBLIC_RT_ASSOC_A"
+for RT_ID in "${PUBLIC_ROUTE_TABLE:-}" "${PRIVATE_ROUTE_TABLE:-}"; do
+    [ -z "$RT_ID" ] && continue
 
-delete_if_exists aws ec2 disassociate-route-table \
---association-id "$PUBLIC_RT_ASSOC_B"
+    # Discover current (non-main) associations rather than trusting stored IDs.
+    ASSOC_IDS=$(aws ec2 describe-route-tables \
+    --route-table-ids "$RT_ID" \
+    --query "RouteTables[0].Associations[?Main==\`false\`].RouteTableAssociationId" \
+    --output text 2>/dev/null || true)
 
-delete_if_exists aws ec2 disassociate-route-table \
---association-id "$PRIVATE_RT_ASSOC_A"
+    for ASSOC_ID in $ASSOC_IDS; do
+        delete_if_exists aws ec2 disassociate-route-table --association-id "$ASSOC_ID"
+    done
 
-delete_if_exists aws ec2 disassociate-route-table \
---association-id "$PRIVATE_RT_ASSOC_B"
-
-delete_if_exists aws ec2 delete-route-table \
---route-table-id "$PUBLIC_ROUTE_TABLE"
-
-delete_if_exists aws ec2 delete-route-table \
---route-table-id "$PRIVATE_ROUTE_TABLE"
+    delete_if_exists aws ec2 delete-route-table --route-table-id "$RT_ID"
+done
 
 ############################################
 # Internet Gateway

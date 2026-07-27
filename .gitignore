@@ -1,6 +1,9 @@
 resources.env
+resource.env
 .env
 .env.*
 .aws/
 keys/
 *.pem
+scripts/my-clean-up-based.sh
+discover-resources.sh
